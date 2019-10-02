@@ -7,8 +7,6 @@ class Game:
     mine_img = pg.image.load('img/mine.png')
     ng_img = pg.image.load('img/ng_icon.png')
     rg_img = pg.image.load('img/rg_icon.png')
-    exp_img = pg.image.load('img/exploded.png')
-    exp_img.set_colorkey(WHITE)
 
     def __init__(self):
         # pygame components
