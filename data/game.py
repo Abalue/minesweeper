@@ -12,6 +12,10 @@ class Game:
         # pygame components
         self.clock = pg.time.Clock()
         self.screen = None
+        self.states = {'menu': self.new_board,
+                       'reset': self.reset_board,
+                       'game': self.play}
+        self.next_state = 'menu'
 
         # data settings
         self.running = True
@@ -21,7 +25,7 @@ class Game:
         self.board = None
         self.ng_button = None
         self.rg_button = None
-        self.new_board()
+        self.run()
 
     def new_board(self):
         """Creates a new board from menu settings"""
@@ -36,12 +40,22 @@ class Game:
                                 (size[1]+0.2)*TILESIZE,
                                 TILESIZE*0.6, TILESIZE*0.6,
                                 '', fill=True)
-        self.run()
+        self.next_state = 'game'
 
     def reset_board(self):
         """Creates a new board based using current settings"""
         self.board = MineBoard(self.board.mines, (self.board.w, self.board.h))
-        self.run()
+        self.next_state = 'game'
+
+    def play(self):
+        if not self.board.hit and not self.board.solved:
+            self.board.update(self.click)
+            self.board.t += self.clock.get_time()
+            self.board.time = int(min(self.board.t/1000, 9999))
+        if self.rg_button.update():
+            self.next_state = 'reset'
+        if self.ng_button.update():
+            self.next_state = 'menu'
 
     def run(self):
         """Game loop"""
@@ -59,9 +73,9 @@ class Game:
                 self.running = False
             if event.type == pg.KEYDOWN:
                 if event.key == pg.K_n:
-                    self.new_board()
+                    self.next_state = 'menu'
                 if event.key == pg.K_r:
-                    self.reset_board()
+                    self.next_state = 'reset'
             if event.type == pg.MOUSEBUTTONDOWN:
                 if event.button == 1:
                     self.click = 'Left'
@@ -70,14 +84,7 @@ class Game:
 
     def update(self):
         """Update data board"""
-        if not self.board.hit and not self.board.solved:
-            self.board.update(self.click)
-            self.board.t += self.clock.get_time()
-            self.board.time = int(min(self.board.t/1000, 9999))
-        if self.rg_button.update():
-            self.reset_board()
-        if self.ng_button.update():
-            self.new_board()
+        self.states[self.next_state]()
 
     def draw(self):
         """Draw data board and data end messages"""
