@@ -1,172 +1,171 @@
-from settings import *
+import pygame as pg
 from random import randint as rand
+from math import floor
 
 
-class MineBoard:
-    font = pg.font.Font(None, TILESIZE)
-    mine_img = pg.image.load('img/mine.png')
-    flag_img = pg.image.load('img/flag.png')
-    tile_img = pg.image.load('img/tile.png')
-    bad_mine_img = pg.image.load('img/bad_mine.png')
-
-    neighbours = [(-1, 0), (-1, -1), (0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1)]
+class Board:
+    """Stores minesweeper information and handles interaction such as placing a flag or revealing a tile (input is
+     handled separately)"""
+    neighbours = [[-1, 0], [0, -1], [1, 0], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]]
     colours = {1: 'blue', 2: 'darkgreen', 3: 'red', 4: 'purple', 5: ' maroon', 6: 'turquoise', 7: 'black', 8: 'gray'}
+    difficulties = {'easy': [10, 10, 10], 'intermediate': [40, 16, 16], 'expert': [99, 30, 16]}
 
-    def __init__(self, mines, size):
-        self.board = None
-        self.top_board = None
-        self.w = size[0]
-        self.h = size[1]
-        self.mines = mines
-        self.reset_board()
-        self.t = 0
-        self.time = 0
+    def __init__(self, difficulty='easy', tile_size=32):
+        """Boards are created in the create_new() function. Many variables are stored as a property as they can be
+        calculated from the top_board and bottom_board variables"""
+        self.top = None
+        self.bottom = None
+
+        settings = Board.difficulties[difficulty]
+        self.create_new(settings[1], settings[2], settings[0])
+
+        self.tile_size = tile_size
+
+        self.font = pg.font.SysFont('', tile_size)
+        self.mine_img = pg.transform.scale(pg.image.load('img/mine.png'), (self.tile_size, self.tile_size))
+        self.tile_img = pg.transform.scale(pg.image.load('img/tile.png'), (self.tile_size, self.tile_size))
+        self.bad_mine_img = pg.transform.scale(pg.image.load('img/bad_mine.png'), (self.tile_size, self.tile_size))
+        self.flag_img = pg.transform.scale(pg.image.load('img/flag.png'), (self.tile_size, self.tile_size))
+
+    def create_new(self, width, height, mines):
+        """Creates a new top board and bottom board and places mines in random locations"""
+        # create empty boards
+        self.top = [[0] * width for _ in range(height)]
+        self.bottom = [[0] * width for _ in range(height)]
+
+        # place mines
+        mines_placed = 0
+        while mines_placed < mines:
+            i, j = rand(0, height-1), rand(0, width-1)
+            if not self.bottom[i][j]:
+                self.bottom[i][j] = -1
+                mines_placed += 1
+
+        # count adjacent mines
+        for i in range(height):
+            for j in range(width):
+                if self.bottom[i][j] != -1:
+                    self.bottom[i][j] = sum(  # sum of adjacent mines from list of booleans that is created
+                        [self.bottom[i + neighbour[0]][j + neighbour[1]] == -1 for neighbour in Board.neighbours if
+                         self.index_in_board(i + neighbour[0], j + neighbour[1])])  # if inside of board
+
+    def reset(self):
+        """Creates a new board using the current boards settings"""
+        self.create_new(self.width, self.height, self.n_mines)
+
+    @property
+    def width(self):
+        """Returns width of current board"""
+        return len(self.bottom[0])
+
+    @property
+    def image_width(self):
+        return self.width*self.tile_size
+
+    @property
+    def image_height(self):
+        return self.height*self.tile_size
+
+    @property
+    def height(self):
+        """Returns length of current board"""
+        return len(self.bottom)
+
+    @property
+    def n_mines(self):
+        """The number of mines in current board"""
+        return sum([row.count(-1) + row.count(-2) for row in self.bottom])
+
+    @property
+    def n_flags(self):
+        """The number of flags placed in current board"""
+        return sum([row.count(2) for row in self.top])
+
+    @property
+    def exploded(self):
+        """Have any of the mines have been revealed"""
+        return any(-2 in row for row in self.bottom)
 
     @property
     def solved(self):
-        if not self.hit:
-            return self.w * self.h - sum(row.count(1) for row in self.top_board) == self.mines
+        """Is the number of unrevealed tiles equal to the number of mines"""
+        return self.n_mines == self.width*self.height - sum([row.count(1) for row in self.top])
 
-    @property
-    def flags_left(self):
-        return self.mines - sum(row.count('f') for row in self.top_board)
+    def reveal_tile(self, i, j):
+        """Reveals tile using index and if there is no adjacent mines will clear all adjacent tiles"""
+        if self.index_in_board(i, j):
+            if self.top[i][j] != 2:  # reveal unless flag is placed
+                self.top[i][j] = 1
+                if self.bottom[i][j] == -1:  # if revealed is mine set mine to hit and reveal board
+                    self.bottom[i][j] = -2
+                    self.reveal_board()
+                elif not self.bottom[i][j]:  # if revealed empty reveal all neighbours
+                    for neighbour in [item for item in self.neighbours if self.index_in_board(i+item[0], j+item[1])]:
+                        if not self.top[i+neighbour[0]][j+neighbour[1]]:
+                            self.reveal_tile(i+neighbour[0], j + neighbour[1])
 
-    @property
-    def hit(self):
-        return any('hm' in row for row in self.board)
+    def place_flag(self, i, j):
+        """Places a flag on top board"""
+        if self.index_in_board(i, j):
+            if self.top[i][j] != 1:  # change flag if not revealed
+                self.top[i][j] = 2 - self.top[i][j]
 
-    def reset_board(self):
-        """Creates a new board"""
-        # board is a list of a list i.e. board[y][x]
-        # board consists of 0-8: number of surrounding mines, 'm': mine, 'hm': hit mine, 'bm' revealed mine under flag
-        self.board = self.blank_board()
-        self.top_board = self.blank_board()
+    def reveal_board(self):
+        """Will reveal entire board except on flags that are on mines. Flags not on mines will become bad mines"""
+        for i, row in enumerate(self.top):
+            for j, item in enumerate(row):
+                if not (item == 2 and self.bottom[i][j] == -1):  # reveal unless mine is flagged
+                    self.top[i][j] = 1
+                    if item == 2:  # if incorrectly flagged set as bad mine
+                        self.bottom[i][j] = -3
 
-        # place mines
-        current_mines = 0
-        while current_mines < self.mines:
-            row = rand(0, self.h-1)
-            col = rand(0, self.w-1)
-            if self.board[row][col] == 0:
-                self.board[row][col] = 'm'
-                current_mines += 1
+    def index_in_board(self, i, j):
+        """Checks if index is within the limits of the board"""
+        return 0 <= i < self.height and 0 <= j < self.width
 
-        # count neighbours
-        for i, row in enumerate(self.board):
-            for j, col in enumerate(row):
-                # get list of indexes for all neighbour cells
-                neighbours = [self.board[i + n[0]][j + n[1]] for n in MineBoard.neighbours if
-                              self.inside(i + n[0], j + n[1])]
-                # if cell not a mine count number of mines in neighbour cells
-                if not col:
-                    self.board[i][j] = neighbours.count('m')
-
-    def blank_board(self):
-        return [[0] * self.w for _ in range(self.h)]
-
-    def update(self, click):
-        index = self.mouse_to_index()
-        if click == 'Left':
-            self.reveal(index)
-        elif click == 'Right':
-            self.place_flag(index)
-
-        # reveal mines and missed flags
-        if self.hit:
-            for i, row in enumerate(self.board):
-                for j, col in enumerate(row):
-                    # if mine not flagged, reveal
-                    if col == 'm' and self.top_board[i][j] != 'f':
-                        self.top_board[i][j] = 1
-                    elif col != 'm' and self.top_board[i][j] == 'f':
-                        self.board[i][j] = 'bm'
-                        self.top_board[i][j] = 1
-
-    def reveal(self, index):
-        i, j = index
-        # if index inside board and yet to be revealed/not flagged
-        if self.inside(i, j) and not self.top_board[i][j]:
-            # reveal cell
-            self.top_board[i][j] = 1
-            # if cell revealed is mine, set it to hit
-            if self.board[i][j] == 'm':
-                self.board[i][j] = 'hm'
-            # if no surrounding mines iterate through neighbours
-            elif self.board[i][j] == 0:
-                for n_i, n_j in [[i + n[0], j + n[1]] for n in MineBoard.neighbours if
-                                 self.inside(i + n[0], j + n[1])]:
-                    # if unrevealed
-                    if not self.top_board[n_i][n_j]:
-                        self.reveal((n_i, n_j))
-
-    def place_flag(self, index):
-        i, j = index
-        # if inside board and not revealed
-        if self.inside(i, j) and self.top_board[i][j] != 1:
-            if self.top_board[i][j] != 'f':
-                self.top_board[i][j] = 'f'
-            else:
-                self.top_board[i][j] = 0
-
-    def inside(self, i, j):
-        return 0 <= j < self.w and 0 <= i < self.h
-
-    @ staticmethod
-    def mouse_to_index():
+    def mouse_to_index(self, offset):
+        """Converts mouse position to coordinate on board. Offset is the (x, y) distance from board to display"""
+        # NEED TO IMPLEMENT A FEATURE THAT WILL ADD ON ANY PIXELS IF BOARD IS NOT AT THE TOP LEFT OF SCREEN
         mouse_pos = pg.mouse.get_pos()
-        return int(mouse_pos[1]/TILESIZE), int(mouse_pos[0]/TILESIZE)
+        return floor((mouse_pos[1] - offset[1]) / self.tile_size), floor((mouse_pos[0] - offset[0]) / self.tile_size)
 
-    def draw_grid(self, surface):
-        for x in range(self.w):
-            pg.draw.line(surface, pg.Color('black'), ((x+1) * TILESIZE, 0),
-                         ((x+1) * TILESIZE, surface.get_height() - TILESIZE))
-        for y in range(self.h):
-            pg.draw.line(surface, pg.Color('black'), (0, (y+1) * TILESIZE),
-                         (surface.get_width(), (y+1) * TILESIZE))
+    def draw(self, display):
+        """Renders the board using Pygame to the selected display"""
+        for i, row in enumerate(self.bottom):
+            for j, bot in enumerate(row):
+                # DRAW BOTTOM BOARD
+                # Draws adjacent mine numbers
+                if bot in Board.colours:
+                    display.blit(self.font.render(str(bot), True, pg.Color(Board.colours[bot])),  # number image
+                                 ((j + 0.35) * self.tile_size, (i + 0.2) * self.tile_size))  # number location
+                # Draw mines
+                if bot == -1:
+                    display.blit(self.mine_img, (j*self.tile_size, i*self.tile_size))
+                # Draw hit mines
+                if bot == -2:
+                    pg.draw.rect(display,
+                                 pg.Color('red'),
+                                 (j*self.tile_size, i*self.tile_size, self.tile_size, self.tile_size))
+                    display.blit(self.mine_img, (j*self.tile_size, i*self.tile_size))
+                # Draw bad mines
+                if bot == -3:
+                    display.blit(self.bad_mine_img, (j*self.tile_size, i*self.tile_size))
 
-    def draw_bottom_board(self, surface):
-        for y, row in enumerate(self.board):
-            for x, col in enumerate(row):
-                # draw mines
-                if col == 'm':
-                    surface.blit(MineBoard.mine_img, (x * TILESIZE, y * TILESIZE))
-                # draw number of neighbours
-                if col in MineBoard.colours:
-                    num_img = MineBoard.font.render(str(col),
-                                                    False, pg.Color(MineBoard.colours[col]))
-                    surface.blit(num_img, (x * TILESIZE + 0.35 * TILESIZE, y * TILESIZE + 0.2 * TILESIZE))
-                # draw hit mine
-                if col == 'hm':
-                    pg.draw.rect(surface, RED, (x * TILESIZE, y * TILESIZE, TILESIZE, TILESIZE))
-                    surface.blit(MineBoard.mine_img, (x * TILESIZE, y * TILESIZE))
-                # draw missed flags
-                if col == 'bm':
-                    surface.blit(MineBoard.bad_mine_img, (x * TILESIZE, y * TILESIZE))
-
-    def draw_top_board(self, surface):
-        for y, row in enumerate(self.top_board):
-            for x, col in enumerate(row):
-                if col == 0:
-                    surface.blit(MineBoard.tile_img, (x * TILESIZE, y * TILESIZE))
-                if col == 'f':
-                    surface.blit(MineBoard.tile_img, (x * TILESIZE, y * TILESIZE))
-                    surface.blit(MineBoard.flag_img, (x * TILESIZE, y * TILESIZE))
-
-    def draw_time(self, surface):
-        time_cor = min(self.time, 9999)
-        time_img = SCROLLFONT.render('Time: ' + str(time_cor), False, FONTBLUE)
-        surface.blit(time_img, (0.2*TILESIZE, self.h*TILESIZE + 0.2 * TILESIZE))
-
-    def draw_flags(self, surface):
-        """Draws number of mines remaining based on flags placed"""
-        flag_img = SCROLLFONT.render('Flags: ' + str(self.flags_left), False, FONTBLUE)
-        surface.blit(flag_img, (3*TILESIZE, self.h*TILESIZE + 0.2*TILESIZE))
-
-    def draw(self, surface):
-        self.draw_bottom_board(surface)
-        self.draw_top_board(surface)
-        self.draw_grid(surface)
-
-        # draw gui
-        self.draw_time(surface)
-        self.draw_flags(surface)
+                # DRAW TOP BOARD AND GRID
+                top = self.top[i][j]
+                if top != 1:
+                    display.blit(self.tile_img, (j*self.tile_size, i*self.tile_size))
+                if top == 2:
+                    display.blit(self.flag_img, (j*self.tile_size, i*self.tile_size))
+                # Draw grid
+                if i > 0:
+                    pg.draw.line(display,
+                                 pg.Color('black'),
+                                 (0, i*self.tile_size),
+                                 (self.width*self.tile_size, i*self.tile_size),
+                                 1)
+                if j > 0:
+                    pg.draw.line(display,
+                                 pg.Color('black'),
+                                 (j*self.tile_size, 0),
+                                 (j*self.tile_size, self.height*self.tile_size))

@@ -1,6 +1,6 @@
 from data.gui import *
-from data.mineboard import MineBoard
-import sys
+from data.mineboard import Board
+import sys  # need to rework state engine to remove sys.exit from menu
 
 
 class Game:
@@ -9,19 +9,22 @@ class Game:
     rg_img = pg.image.load('img/rg_icon.png')
 
     def __init__(self):
-        # pygame components
+        # Pygame components
         self.clock = pg.time.Clock()
         self.screen = None
+
+        # state engine
         self.states = {'menu': self.new_board,
                        'reset': self.reset_board,
                        'game': self.play}
         self.next_state = 'menu'
 
-        # data settings
+        # game variables
         self.running = True
         self.click = None
+        self.t = 0
 
-        # data components
+        # game components
         self.board = None
         self.ng_button = None
         self.rg_button = None
@@ -30,28 +33,33 @@ class Game:
     def new_board(self):
         """Creates a new board from menu settings"""
         size, mines = menu(self.clock)
-        self.board = MineBoard(mines, size)
-        self.screen = pg.display.set_mode((TILESIZE * self.board.w, TILESIZE * (self.board.h + 1)))
-        self.ng_button = Button((size[0]-0.8)*TILESIZE,
-                                (size[1]+0.2)*TILESIZE,
-                                TILESIZE*0.6, TILESIZE*0.6,
+        self.board = Board(tile_size=TILESIZE)
+        self.board.create_new(size[0], size[1], mines)
+        self.screen = pg.display.set_mode((self.board.image_width, self.board.image_height + self.board.tile_size))
+        self.ng_button = Button((size[0]-0.8)*self.board.tile_size,
+                                (size[1]+0.2)*self.board.tile_size,
+                                self.board.tile_size*0.6, self.board.tile_size*0.6,
                                 '', fill=True)
-        self.rg_button = Button((size[0]-1.8)*TILESIZE,
-                                (size[1]+0.2)*TILESIZE,
-                                TILESIZE*0.6, TILESIZE*0.6,
+        self.rg_button = Button((size[0]-1.8)*self.board.tile_size,
+                                (size[1]+0.2)*self.board.tile_size,
+                                self.board.tile_size*0.6, self.board.tile_size*0.6,
                                 '', fill=True)
         self.next_state = 'game'
 
     def reset_board(self):
         """Creates a new board based using current settings"""
-        self.board = MineBoard(self.board.mines, (self.board.w, self.board.h))
+        self.board.reset()
         self.next_state = 'game'
 
     def play(self):
-        if not self.board.hit and not self.board.solved:
-            self.board.update(self.click)
-            self.board.t += self.clock.get_time()
-            self.board.time = int(min(self.board.t/1000, 9999))
+        print('game')
+        if not self.board.exploded and not self.board.solved:
+            index = self.board.mouse_to_index((0, 0))
+            if self.click == 'Left':
+                self.board.reveal_tile(index[0], index[1])
+            elif self.click == 'Right':
+                self.board.place_flag(index[0], index[1])
+            self.t += self.clock.get_time()
         if self.rg_button.update():
             self.next_state = 'reset'
         if self.ng_button.update():
@@ -67,6 +75,7 @@ class Game:
             self.clock.tick(FPS)
 
     def handle_events(self):
+        """Gets user input (except mouse movement)"""
         self.click = None
         for event in pg.event.get():
             if event.type == pg.QUIT:
@@ -83,7 +92,7 @@ class Game:
                     self.click = 'Right'
 
     def update(self):
-        """Update data board"""
+        """Changes game state to next state"""
         self.states[self.next_state]()
 
     def draw(self):
@@ -94,12 +103,20 @@ class Game:
             win_mess_1 = "Solved!"
             win_img_1 = BUTTONFONT.render(win_mess_1, True, FONTBLUE, BGGREY)
             self.screen.blit(win_img_1,
-                             ((TILESIZE * self.board.w - win_img_1.get_width())/2,
-                              TILESIZE * self.board.h/2 - int(0.5*TILESIZE)))
+                             ((self.board.image_width - win_img_1.get_width())/2,
+                              self.board.image_height/2 - int(0.5*TILESIZE)))
         self.ng_button.draw(self.screen)
         self.rg_button.draw(self.screen)
         self.screen.blit(Game.ng_img, self.ng_button.rect.topleft)
         self.screen.blit(Game.rg_img, self.rg_button.rect.topleft)
+
+        time = int(min(self.t/1000, 9999))
+        time_img = SCROLLFONT.render('Time: ' + str(time), False, FONTBLUE)
+        self.screen.blit(time_img, (0.2 * self.board.tile_size, self.board.image_height + 0.2 * self.board.tile_size))
+
+        flag_img = SCROLLFONT.render('Flags: ' + str(self.board.n_mines - self.board.n_flags), False, FONTBLUE)
+        self.screen.blit(flag_img, (3 * TILESIZE, self.board.image_height + 0.2 * TILESIZE))
+
         pg.display.flip()
 
 
